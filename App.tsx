@@ -1,16 +1,26 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { editImageWithGemini, animateImageWithGemini } from './services/geminiService';
+import { getLibrary, saveLibrary, LibraryItem } from './services/libraryService';
 import ImageSlider from './ImageSlider';
 import ErrorDisplay from './ErrorDisplay';
 import RichTextEditor, { KEYWORDS } from './RichTextEditor';
 import PromptHistory from './PromptHistory';
 import PromptSuggestions from './PromptSuggestions';
 import MaskingCanvas from './MaskingCanvas';
+import UserProfile from './UserProfile';
+import LibraryModal from './LibraryModal';
+import DownloadModal from './DownloadModal';
+import Login from './Login';
 
 interface ImageData {
   base64: string;
   mimeType: string;
   dataUrl: string;
+}
+
+interface VideoData {
+  objectUrl: string | null;
+  blob: Blob | null;
 }
 
 type Mode = 'edit' | 'animate';
@@ -42,6 +52,20 @@ const fileToImageData = (file: File): Promise<ImageData> => {
       }
     };
     reader.onerror = error => reject(error);
+  });
+};
+
+const blobToDataURL = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (reader.error) {
+        reject(reader.error);
+      } else {
+        resolve(reader.result as string);
+      }
+    };
+    reader.readAsDataURL(blob);
   });
 };
 
@@ -108,7 +132,7 @@ const ImageUploader: React.FC<{ onImagesUpload: (imageData: ImageData[]) => void
   );
 };
 
-const MediaDisplay: React.FC<{ src?: string | null; title?: string; isLoading?: boolean; mediaType?: 'image' | 'video', loadingMessage?: string, onDownload?: () => void }> = ({ src, title, isLoading, mediaType = 'image', loadingMessage, onDownload }) => (
+const MediaDisplay: React.FC<{ src?: string | null; title?: string; isLoading?: boolean; mediaType?: 'image' | 'video', loadingMessage?: string, onDownload?: () => void; onSave?: () => void }> = ({ src, title, isLoading, mediaType = 'image', loadingMessage, onDownload, onSave }) => (
   <div className="w-full">
     {title && <h3 className="text-lg font-medium text-gray-300 mb-2">{title}</h3>}
     <div className="aspect-square w-full rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center overflow-hidden relative group">
@@ -117,17 +141,33 @@ const MediaDisplay: React.FC<{ src?: string | null; title?: string; isLoading?: 
       {!isLoading && src && mediaType === 'video' && <video src={src} controls autoPlay loop className="w-full h-full object-contain" />}
       {!isLoading && !src && <div className="text-gray-500 text-sm">{mediaType === 'image' ? 'Image' : 'Video'} will appear here</div>}
       
-      {!isLoading && src && onDownload && mediaType === 'image' && (
-        <button
-          onClick={onDownload}
-          className="absolute bottom-2 right-2 bg-indigo-600 text-white p-2 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800"
-          aria-label="Download image"
-          title="Download image"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-        </button>
+      {!isLoading && src && (onDownload || onSave) && (
+        <div className="absolute bottom-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onSave && (
+            <button
+              onClick={onSave}
+              className="bg-amber-500 text-white p-2 rounded-full shadow-lg hover:bg-amber-600 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-gray-800"
+              aria-label="Save to library"
+              title="Save to library"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+              </svg>
+            </button>
+          )}
+          {onDownload && (
+            <button
+              onClick={onDownload}
+              className="bg-indigo-600 text-white p-2 rounded-full shadow-lg hover:bg-indigo-700 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+              aria-label={`Download ${mediaType}`}
+              title={`Download ${mediaType}`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </button>
+          )}
+        </div>
       )}
     </div>
   </div>
@@ -175,15 +215,36 @@ const HistoryControls: React.FC<{
   </div>
 );
 
+const convertImageFormat = (dataUrl: string, format: 'png' | 'jpeg', quality: number = 0.92): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          return reject(new Error('Could not get canvas context.'));
+        }
+        ctx.drawImage(image, 0, 0);
+        const newMimeType = `image/${format}`;
+        const newDataUrl = canvas.toDataURL(newMimeType, format === 'jpeg' ? quality : undefined);
+        resolve(newDataUrl);
+      };
+      image.onerror = (err) => reject(err);
+      image.src = dataUrl;
+    });
+  };
 
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [originalImages, setOriginalImages] = useState<ImageData[]>([]);
   const [editHistory, setEditHistory] = useState<{
     past: string[][];
     present: string[];
     future: string[][];
   }>({ past: [], present: [], future: [] });
-  const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
+  const [generatedVideo, setGeneratedVideo] = useState<VideoData>({ objectUrl: null, blob: null });
   const [prompt, setPrompt] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -195,6 +256,14 @@ const App: React.FC = () => {
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   const [isMasking, setIsMasking] = useState<boolean>(false);
   const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
+  const [library, setLibrary] = useState<LibraryItem[]>([]);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [downloadModalState, setDownloadModalState] = useState<{
+    isOpen: boolean;
+    dataUrl: string | null;
+    defaultFileName: string;
+  }>({ isOpen: false, dataUrl: null, defaultFileName: '' });
+
   const loadingIntervalRef = useRef<number | null>(null);
   
   const editedImages = editHistory.present;
@@ -214,9 +283,9 @@ const App: React.FC = () => {
         if (storedHistory) {
             setPromptHistory(JSON.parse(storedHistory));
         }
+        setLibrary(getLibrary());
     } catch (error) {
-        console.error("Failed to parse prompt history from localStorage", error);
-        localStorage.removeItem(HISTORY_KEY);
+        console.error("Failed to parse from localStorage", error);
     }
   }, []);
 
@@ -251,7 +320,7 @@ const App: React.FC = () => {
   const handleImagesUpload = useCallback((imageData: ImageData[]) => {
     setOriginalImages(imageData);
     setEditHistory({ past: [], present: [], future: [] });
-    setGeneratedVideo(null);
+    setGeneratedVideo({ objectUrl: null, blob: null });
     setError(null);
     setPrompt('');
     setIsMasking(false);
@@ -318,6 +387,44 @@ const App: React.FC = () => {
     setIsMasking(false);
   };
 
+  const handleSaveToLibrary = (type: 'image' | 'video', dataUrl: string, currentPrompt: string, originalImage?: string) => {
+    const newItem: LibraryItem = {
+      id: Date.now().toString(),
+      type,
+      dataUrl,
+      prompt: currentPrompt,
+      createdAt: new Date().toISOString(),
+      originalImage,
+    };
+    const newLibrary = [newItem, ...library];
+    setLibrary(newLibrary);
+    saveLibrary(newLibrary);
+  };
+
+  const handleRemoveFromLibrary = (id: string) => {
+    const newLibrary = library.filter(item => item.id !== id);
+    setLibrary(newLibrary);
+    saveLibrary(newLibrary);
+  };
+
+  const handleLibraryDownload = (item: LibraryItem) => {
+    if (item.type === 'video') {
+      const link = document.createElement('a');
+      link.href = item.dataUrl;
+      link.download = `visionary-studio-${item.id}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    setDownloadModalState({
+        isOpen: true,
+        dataUrl: item.dataUrl,
+        defaultFileName: `visionary-studio-${item.id}`
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedPrompt = prompt.trim();
@@ -339,7 +446,7 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
-    setGeneratedVideo(null);
+    setGeneratedVideo({ objectUrl: null, blob: null });
     updatePromptHistory(trimmedPrompt);
     
     const finalPrompt = (mode === 'edit' && imageAspectRatio)
@@ -377,8 +484,8 @@ const App: React.FC = () => {
             }
 
         } else { // Animate mode
-            const videoUrl = await animateImageWithGemini(originalImages[0].base64, originalImages[0].mimeType, trimmedPrompt, aspectRatio);
-            setGeneratedVideo(videoUrl);
+            const { objectUrl, blob } = await animateImageWithGemini(originalImages[0].base64, originalImages[0].mimeType, trimmedPrompt, aspectRatio);
+            setGeneratedVideo({ objectUrl, blob });
         }
     } catch (err) {
       console.error(err);
@@ -402,14 +509,27 @@ const App: React.FC = () => {
   };
 
   const handleDownload = (dataUrl: string, index: number) => {
+    setDownloadModalState({
+        isOpen: true,
+        dataUrl,
+        defaultFileName: `edited-image-${index + 1}`
+    });
+  };
+
+  const handleVideoDownload = (videoUrl: string) => {
     const link = document.createElement('a');
-    const mimeType = dataUrl.substring(dataUrl.indexOf(':') + 1, dataUrl.indexOf(';'));
-    const extension = mimeType.split('/')[1] || 'png';
-    link.href = dataUrl;
-    link.download = `edited-image-${index + 1}.${extension}`;
+    link.href = videoUrl;
+    link.download = 'generated-video.mp4';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+  
+  const handleSaveVideo = async () => {
+    if (generatedVideo.blob) {
+      const dataUrl = await blobToDataURL(generatedVideo.blob);
+      handleSaveToLibrary('video', dataUrl, prompt, originalImages[0].dataUrl);
+    }
   };
 
   const handleSuggestionSelect = (suggestion: string) => {
@@ -419,12 +539,53 @@ const App: React.FC = () => {
     });
   };
   
+  const handleConfirmDownload = async ({ fileName, format }: { fileName: string, format: 'png' | 'jpeg' }) => {
+    if (!downloadModalState.dataUrl) return;
+
+    try {
+        const finalDataUrl = await convertImageFormat(downloadModalState.dataUrl, format);
+
+        const link = document.createElement('a');
+        link.href = finalDataUrl;
+        link.download = `${fileName.trim() || 'download'}.${format}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        setDownloadModalState({ isOpen: false, dataUrl: null, defaultFileName: '' });
+    } catch (error) {
+        console.error("Failed to convert or download image:", error);
+        setError("Failed to process image for download. Please try again.");
+    }
+  };
+
+  const handleLoginSuccess = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    // Optional: clear state on logout
+    setOriginalImages([]);
+    setEditHistory({ past: [], present: [], future: [] });
+    setGeneratedVideo({ objectUrl: null, blob: null });
+  };
+
   const renderResults = () => {
     if (originalImages.length === 0) return null;
 
     // Single image slider view
     if (mode === 'edit' && originalImages.length === 1 && editedImages.length === 1 && !isLoading && !isMasking) {
-        return <ImageSlider beforeSrc={originalImages[0].dataUrl} afterSrc={editedImages[0]} />;
+        return (
+            <div className="relative group">
+                <ImageSlider 
+                  beforeSrc={originalImages[0].dataUrl} 
+                  afterSrc={editedImages[0]}
+                  onSave={() => handleSaveToLibrary('image', editedImages[0], prompt, originalImages[0].dataUrl)}
+                  onDownload={() => handleDownload(editedImages[0], 0)}
+                />
+            </div>
+        );
     }
 
     // Batch edit grid view
@@ -441,6 +602,7 @@ const App: React.FC = () => {
                                 title="Edited" 
                                 mediaType='image' 
                                 onDownload={() => handleDownload(editedImages[index], index)}
+                                onSave={() => handleSaveToLibrary('image', editedImages[index], prompt, img.dataUrl)}
                              />
                         </div>
                     ))}
@@ -504,20 +666,40 @@ const App: React.FC = () => {
                     )}
                 </div>
                 <div className="flex items-center justify-center h-full">
-                    {isLoading ? (
-                       <div className="w-full aspect-square"><MediaDisplay isLoading={true} mediaType={mode === 'edit' ? 'image' : 'video'} loadingMessage={loadingMessage}/></div>
-                    ) : (
-                        <>
-                            {mode === 'edit' && (
-                                <div className={`grid gap-4 ${editedImages.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                                    {/* This part is now handled by the batch view, but kept for single edits */}
-                                    {editedImages.length === 1 && <MediaDisplay src={editedImages[0]} mediaType='image' onDownload={() => handleDownload(editedImages[0], 0)} />}
-                                </div>
-                            )}
-                            {mode === 'animate' && generatedVideo && (
-                                <MediaDisplay src={generatedVideo} mediaType='video' />
-                            )}
-                        </>
+                    {mode === 'edit' ? (
+                        <div className={`grid gap-4 ${originalImages.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} w-full`}>
+                        {isLoading 
+                            ? originalImages.map((_, index) => (
+                                <MediaDisplay 
+                                key={`loading-${index}`}
+                                isLoading={true} 
+                                mediaType="image"
+                                loadingMessage={index === 0 ? loadingMessage : undefined} 
+                                />
+                            ))
+                            : editedImages.length > 0
+                            ? editedImages.map((img, index) => (
+                                <MediaDisplay 
+                                    key={`result-${index}`}
+                                    src={img} 
+                                    mediaType="image" 
+                                    onDownload={() => handleDownload(img, index)}
+                                    onSave={() => handleSaveToLibrary('image', img, prompt, originalImages[index].dataUrl)} 
+                                />
+                                ))
+                            // When not loading, and no results, show a single placeholder.
+                            : <MediaDisplay mediaType="image" />
+                        }
+                        </div>
+                    ) : ( // mode === 'animate'
+                        <MediaDisplay 
+                        isLoading={isLoading}
+                        src={generatedVideo.objectUrl}
+                        mediaType="video"
+                        loadingMessage={loadingMessage}
+                        onDownload={generatedVideo.objectUrl ? () => handleVideoDownload(generatedVideo.objectUrl!) : undefined}
+                        onSave={generatedVideo.blob ? handleSaveVideo : undefined}
+                        />
                     )}
                 </div>
             </div>
@@ -525,16 +707,23 @@ const App: React.FC = () => {
     );
   };
 
+  if (!isAuthenticated) {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
-        <header className="text-center mb-8">
+        <header className="text-center mb-8 relative">
           <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-600">
             Visionary AI Studio
           </h1>
           <p className="mt-2 text-lg text-gray-400">
             Edit images or create short video ads with simple text prompts.
           </p>
+          <div className="absolute top-0 right-0">
+            <UserProfile onOpenLibrary={() => setIsLibraryOpen(true)} onLogout={handleLogout} />
+          </div>
         </header>
         
         <main className="space-y-8">
@@ -670,6 +859,22 @@ const App: React.FC = () => {
 
           {renderResults()}
         </main>
+
+        <LibraryModal 
+          isOpen={isLibraryOpen}
+          onClose={() => setIsLibraryOpen(false)}
+          library={library}
+          onDownload={handleLibraryDownload}
+          onDelete={handleRemoveFromLibrary}
+        />
+
+        <DownloadModal
+            isOpen={downloadModalState.isOpen}
+            onClose={() => setDownloadModalState({ ...downloadModalState, isOpen: false })}
+            onConfirm={handleConfirmDownload}
+            imageDataUrl={downloadModalState.dataUrl}
+            defaultFileName={downloadModalState.defaultFileName}
+        />
       </div>
     </div>
   );

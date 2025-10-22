@@ -72,7 +72,7 @@ export const animateImageWithGemini = async (
   mimeType: string,
   prompt: string,
   aspectRatio: '16:9' | '9:16'
-): Promise<string> => {
+): Promise<{ objectUrl: string; blob: Blob }> => {
     if (!process.env.API_KEY) {
         throw new Error("API_KEY environment variable is not set for video generation.");
     }
@@ -115,7 +115,7 @@ export const animateImageWithGemini = async (
         }
         
         const videoBlob = await response.blob();
-        return URL.createObjectURL(videoBlob);
+        return { objectUrl: URL.createObjectURL(videoBlob), blob: videoBlob };
 
     } catch (error) {
         console.error("Error calling Gemini API for video animation:", error);
