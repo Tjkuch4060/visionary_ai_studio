@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { editImageWithGemini, animateImageWithGemini } from './services/geminiService';
 import { getLibrary, saveLibrary, LibraryItem } from './services/libraryService';
+import { fetchShopifyProducts, convertImageUrlsToImageData, ShopifyProductImage } from './services/shopifyService';
 import ImageSlider from './ImageSlider';
 import ErrorDisplay from './ErrorDisplay';
 import RichTextEditor, { KEYWORDS } from './RichTextEditor';
@@ -11,8 +12,12 @@ import UserProfile from './UserProfile';
 import LibraryModal from './LibraryModal';
 import DownloadModal from './DownloadModal';
 import Login from './Login';
+import ImageSourceSelector from './ImageSourceSelector';
+import ShopifyConnectModal from './ShopifyConnectModal';
+import ShopifyProductPicker from './ShopifyProductPicker';
+import LoadingSpinner from './LoadingSpinner';
 
-interface ImageData {
+export interface ImageData {
   base64: string;
   mimeType: string;
   dataUrl: string;
@@ -25,6 +30,8 @@ interface VideoData {
 
 type Mode = 'edit' | 'animate';
 type AspectRatio = '16:9' | '9:16';
+type ShopifyProduct = { id: number, title: string, images: {id: number, src: string}[] };
+
 
 const VIDEO_LOADING_MESSAGES = [
     "Our AI is warming up the cameras... 🎬",
@@ -35,25 +42,6 @@ const VIDEO_LOADING_MESSAGES = [
 
 const HISTORY_KEY = 'promptHistory';
 const MAX_HISTORY_LENGTH = 10;
-
-const fileToImageData = (file: File): Promise<ImageData> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const [header, base64] = dataUrl.split(',');
-      const mimeTypeMatch = header.match(/:(.*?);/);
-      
-      if (base64 && mimeTypeMatch && mimeTypeMatch[1]) {
-        resolve({ base64, mimeType: mimeTypeMatch[1], dataUrl });
-      } else {
-        reject(new Error("Could not parse image file."));
-      }
-    };
-    reader.onerror = error => reject(error);
-  });
-};
 
 const blobToDataURL = (blob: Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -67,69 +55,6 @@ const blobToDataURL = (blob: Blob): Promise<string> => {
     };
     reader.readAsDataURL(blob);
   });
-};
-
-const ImageUploader: React.FC<{ onImagesUpload: (imageData: ImageData[]) => void; className?: string }> = ({ onImagesUpload, className }) => {
-  const [isDragging, setIsDragging] = useState(false);
-
-  const handleFileChange = async (files: FileList | null) => {
-    if (files && files.length > 0) {
-      const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-      if (imageFiles.length === 0) {
-        alert("Please upload at least one image file (e.g., PNG, JPG, WEBP).");
-        return;
-      }
-
-      try {
-        const imagePromises = imageFiles.map(fileToImageData);
-        const imageDataArray = await Promise.all(imagePromises);
-        onImagesUpload(imageDataArray);
-      } catch (error) {
-        console.error("Error processing files:", error);
-        alert("Failed to load one or more images. Please try again.");
-      }
-    }
-  };
-
-  const handleDragEnter = (e: React.DragEvent<HTMLLabelElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-  const handleDragLeave = (e: React.DragEvent<HTMLLabelElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-  const handleDragOver = (e: React.DragEvent<HTMLLabelElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-  const handleDrop = (e: React.DragEvent<HTMLLabelElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    handleFileChange(e.dataTransfer.files);
-  };
-
-  return (
-    <label
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-      className={`relative block w-full rounded-lg border-2 border-dashed p-12 text-center hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-900 cursor-pointer transition-colors ${isDragging ? 'border-indigo-400 bg-indigo-900/10' : 'border-gray-600'} ${className}`}
-    >
-      <input type="file" className="sr-only" accept="image/*" onChange={(e) => handleFileChange(e.target.files)} multiple />
-      <svg className="mx-auto h-12 w-12 text-gray-500" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      <span className="mt-2 block text-sm font-semibold text-gray-400">
-        Click to upload or drag and drop image(s)
-      </span>
-      <span className="mt-1 block text-xs text-gray-500">PNG, JPG, WEBP, GIF up to 10MB</span>
-    </label>
-  );
 };
 
 const MediaDisplay: React.FC<{ src?: string | null; title?: string; isLoading?: boolean; mediaType?: 'image' | 'video', loadingMessage?: string, onDownload?: () => void; onSave?: () => void }> = ({ src, title, isLoading, mediaType = 'image', loadingMessage, onDownload, onSave }) => (
@@ -171,16 +96,6 @@ const MediaDisplay: React.FC<{ src?: string | null; title?: string; isLoading?: 
       )}
     </div>
   </div>
-);
-
-const LoadingSpinner: React.FC<{ message?: string }> = ({ message }) => (
-    <div className="flex flex-col items-center justify-center text-center">
-        <svg className="animate-spin h-10 w-10 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-        {message && <p className="mt-4 text-sm text-gray-400">{message}</p>}
-    </div>
 );
 
 const HistoryControls: React.FC<{
@@ -263,6 +178,14 @@ const App: React.FC = () => {
     dataUrl: string | null;
     defaultFileName: string;
   }>({ isOpen: false, dataUrl: null, defaultFileName: '' });
+
+  // Shopify State
+  const [isShopifyConnectOpen, setIsShopifyConnectOpen] = useState(false);
+  const [isShopifyPickerOpen, setIsShopifyPickerOpen] = useState(false);
+  const [shopifyStoreUrl, setShopifyStoreUrl] = useState('');
+  const [shopifyProducts, setShopifyProducts] = useState<ShopifyProduct[]>([]);
+  const [shopifyLoading, setShopifyLoading] = useState(false);
+  const [shopifyError, setShopifyError] = useState<string|null>(null);
 
   const loadingIntervalRef = useRef<number | null>(null);
   
@@ -423,6 +346,36 @@ const App: React.FC = () => {
         dataUrl: item.dataUrl,
         defaultFileName: `visionary-studio-${item.id}`
     });
+  };
+  
+  const handleConnectToShopify = async (storeUrl: string) => {
+    setShopifyError(null);
+    setShopifyLoading(true);
+    try {
+        const products = await fetchShopifyProducts(storeUrl);
+        setShopifyProducts(products);
+        setShopifyStoreUrl(storeUrl);
+        setIsShopifyConnectOpen(false);
+        setIsShopifyPickerOpen(true);
+    } catch (err) {
+        setShopifyError(err instanceof Error ? err.message : "An unknown error occurred.");
+    } finally {
+        setShopifyLoading(false);
+    }
+  };
+  
+  const handleShopifyImport = async (selectedImages: ShopifyProductImage[]) => {
+      setShopifyError(null);
+      setShopifyLoading(true);
+      try {
+          const imageDataArray = await convertImageUrlsToImageData(selectedImages);
+          handleImagesUpload(imageDataArray);
+          setIsShopifyPickerOpen(false);
+      } catch (err) {
+          setShopifyError(err instanceof Error ? err.message : "Failed to import images.");
+      } finally {
+          setShopifyLoading(false);
+      }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -729,7 +682,10 @@ const App: React.FC = () => {
         <main className="space-y-8">
           <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 shadow-lg">
             {originalImages.length === 0 ? (
-                <ImageUploader onImagesUpload={handleImagesUpload} />
+                <ImageSourceSelector 
+                  onImagesUpload={handleImagesUpload}
+                  onOpenShopifyConnect={() => setIsShopifyConnectOpen(true)}
+                />
             ) : (
                 <>
                     <div className="mb-6 border-b border-gray-700">
@@ -875,6 +831,25 @@ const App: React.FC = () => {
             imageDataUrl={downloadModalState.dataUrl}
             defaultFileName={downloadModalState.defaultFileName}
         />
+
+        <ShopifyConnectModal
+            isOpen={isShopifyConnectOpen}
+            onClose={() => setIsShopifyConnectOpen(false)}
+            onConnect={handleConnectToShopify}
+            isLoading={shopifyLoading}
+            error={shopifyError}
+        />
+
+        <ShopifyProductPicker
+            isOpen={isShopifyPickerOpen}
+            onClose={() => setIsShopifyPickerOpen(false)}
+            products={shopifyProducts}
+            onImport={handleShopifyImport}
+            isLoading={shopifyLoading}
+            error={shopifyError}
+            storeUrl={shopifyStoreUrl}
+        />
+
       </div>
     </div>
   );
