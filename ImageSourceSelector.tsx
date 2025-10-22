@@ -1,28 +1,30 @@
 import React, { useState } from 'react';
 import { ImageData } from './App';
 import { GlowingEffect } from './GlowingEffect';
-
-const fileToImageData = (file: File): Promise<ImageData> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const [header, base64] = dataUrl.split(',');
-      const mimeTypeMatch = header.match(/:(.*?);/);
-      
-      if (base64 && mimeTypeMatch && mimeTypeMatch[1]) {
-        resolve({ base64, mimeType: mimeTypeMatch[1], dataUrl });
-      } else {
-        reject(new Error("Could not parse image file."));
-      }
-    };
-    reader.onerror = error => reject(error);
-  });
-};
+import CameraCaptureModal from './CameraCaptureModal';
+import TextToImageGenerator from './TextToImageGenerator';
 
 const FileUploader: React.FC<{ onImagesUpload: (imageData: ImageData[]) => void; className?: string }> = ({ onImagesUpload, className }) => {
   const [isDragging, setIsDragging] = useState(false);
+
+  const fileToImageData = (file: File): Promise<ImageData> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const [header, base64] = dataUrl.split(',');
+        const mimeTypeMatch = header.match(/:(.*?);/);
+        
+        if (base64 && mimeTypeMatch && mimeTypeMatch[1]) {
+          resolve({ base64, mimeType: mimeTypeMatch[1], dataUrl });
+        } else {
+          reject(new Error("Could not parse image file."));
+        }
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
 
   const handleFileChange = async (files: FileList | null) => {
     if (files && files.length > 0) {
@@ -87,11 +89,20 @@ const FileUploader: React.FC<{ onImagesUpload: (imageData: ImageData[]) => void;
 
 
 const ImageSourceSelector: React.FC<{ onImagesUpload: (imageData: ImageData[]) => void; onOpenShopifyConnect: () => void; }> = ({ onImagesUpload, onOpenShopifyConnect }) => {
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+    const handleCapture = (imageData: ImageData) => {
+        onImagesUpload([imageData]);
+    };
+
     return (
         <div className="w-full">
             <h2 className="text-center text-xl font-bold text-gray-300 mb-6">Choose Your Image Source</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
                 <FileUploader onImagesUpload={onImagesUpload} />
+                
+                <TextToImageGenerator onImagesUpload={onImagesUpload} />
+
                 <button 
                   onClick={onOpenShopifyConnect}
                   className="relative w-full h-full rounded-lg border-2 border-dashed border-gray-600 p-12 text-center hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-900 cursor-pointer transition-colors flex flex-col items-center justify-center group"
@@ -105,7 +116,27 @@ const ImageSourceSelector: React.FC<{ onImagesUpload: (imageData: ImageData[]) =
                     <span className="mt-1 block text-xs text-gray-500">Connect your store to use product images</span>
                     <GlowingEffect disabled={false} proximity={20} spread={20} blur={10} />
                 </button>
+
+                <button 
+                  onClick={() => setIsCameraOpen(true)}
+                  className="relative w-full h-full rounded-lg border-2 border-dashed border-gray-600 p-12 text-center hover:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-gray-900 cursor-pointer transition-colors flex flex-col items-center justify-center group"
+                >
+                    <svg className="mx-auto h-12 w-12 text-gray-500 group-hover:text-cyan-400 transition-colors" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.776 48.776 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+                    </svg>
+                    <span className="mt-2 block text-sm font-semibold text-gray-400 group-hover:text-white">
+                        Take Photo with Camera
+                    </span>
+                    <span className="mt-1 block text-xs text-gray-500">Use your device's camera to capture an image</span>
+                    <GlowingEffect disabled={false} proximity={20} spread={20} blur={10} />
+                </button>
             </div>
+            <CameraCaptureModal
+                isOpen={isCameraOpen}
+                onClose={() => setIsCameraOpen(false)}
+                onCapture={handleCapture}
+            />
         </div>
     );
 };
