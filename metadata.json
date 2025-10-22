@@ -1,0 +1,5 @@
+{
+  "name": "Visionary AI Studio",
+  "description": "An application that allows users to edit images or animate them into short videos using simple text prompts. Powered by Gemini 2.5 Flash Image for editing and Veo for video generation.",
+  "requestFramePermissions": []
+}
