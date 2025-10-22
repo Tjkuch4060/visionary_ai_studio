@@ -16,6 +16,10 @@ import ImageSourceSelector from './ImageSourceSelector';
 import ShopifyConnectModal from './ShopifyConnectModal';
 import ShopifyProductPicker from './ShopifyProductPicker';
 import LoadingSpinner from './LoadingSpinner';
+import RestoreSessionBar from './RestoreSessionBar';
+import PromptTemplatesModal from './PromptTemplatesModal';
+import { PROMPT_TEMPLATES } from './services/templateService';
+
 
 export interface ImageData {
   base64: string;
@@ -41,6 +45,7 @@ const VIDEO_LOADING_MESSAGES = [
 ];
 
 const HISTORY_KEY = 'promptHistory';
+const AUTOSAVE_KEY = 'visionaryStudioAutoSave';
 const MAX_HISTORY_LENGTH = 10;
 
 const blobToDataURL = (blob: Blob): Promise<string> => {
@@ -56,6 +61,11 @@ const blobToDataURL = (blob: Blob): Promise<string> => {
     reader.readAsDataURL(blob);
   });
 };
+
+const dataURLtoBlob = (dataUrl: string): Promise<Blob> => {
+    return fetch(dataUrl).then(res => res.blob());
+};
+
 
 const MediaDisplay: React.FC<{ src?: string | null; title?: string; isLoading?: boolean; mediaType?: 'image' | 'video', loadingMessage?: string, onDownload?: () => void; onSave?: () => void }> = ({ src, title, isLoading, mediaType = 'image', loadingMessage, onDownload, onSave }) => (
   <div className="w-full">
@@ -173,11 +183,13 @@ const App: React.FC = () => {
   const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
   const [downloadModalState, setDownloadModalState] = useState<{
     isOpen: boolean;
     dataUrl: string | null;
     defaultFileName: string;
   }>({ isOpen: false, dataUrl: null, defaultFileName: '' });
+  const [savedSession, setSavedSession] = useState<any | null>(null);
 
   // Shopify State
   const [isShopifyConnectOpen, setIsShopifyConnectOpen] = useState(false);
@@ -188,6 +200,7 @@ const App: React.FC = () => {
   const [shopifyError, setShopifyError] = useState<string|null>(null);
 
   const loadingIntervalRef = useRef<number | null>(null);
+  const autoSaveTimeoutRef = useRef<number | null>(null);
   
   const editedImages = editHistory.present;
 
@@ -207,10 +220,54 @@ const App: React.FC = () => {
             setPromptHistory(JSON.parse(storedHistory));
         }
         setLibrary(getLibrary());
+        const savedData = localStorage.getItem(AUTOSAVE_KEY);
+        if (savedData) {
+            const parsedData = JSON.parse(savedData);
+            if (parsedData.originalImages && parsedData.originalImages.length > 0) {
+                setSavedSession(parsedData);
+            }
+        }
     } catch (error) {
         console.error("Failed to parse from localStorage", error);
+        localStorage.removeItem(AUTOSAVE_KEY);
     }
   }, []);
+
+  useEffect(() => {
+    // Don't save if there's nothing to save or if we're showing the restore prompt
+    if (originalImages.length === 0 || savedSession) {
+        return;
+    }
+
+    if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    autoSaveTimeoutRef.current = window.setTimeout(async () => {
+        try {
+            const videoDataUrl = generatedVideo.blob ? await blobToDataURL(generatedVideo.blob) : null;
+            const sessionToSave = {
+                originalImages,
+                editHistory,
+                generatedVideoDataUrl: videoDataUrl,
+                prompt,
+                mode,
+                aspectRatio,
+                imageAspectRatio,
+                maskDataUrl,
+            };
+            localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(sessionToSave));
+        } catch (error) {
+            console.error("Failed to auto-save session:", error);
+        }
+    }, 1000); // Debounce for 1 second
+
+    return () => {
+        if (autoSaveTimeoutRef.current) {
+            clearTimeout(autoSaveTimeoutRef.current);
+        }
+    };
+  }, [originalImages, editHistory, generatedVideo, prompt, mode, aspectRatio, imageAspectRatio, maskDataUrl, savedSession]);
 
   useEffect(() => {
     if (isLoading) {
@@ -239,6 +296,11 @@ const App: React.FC = () => {
       }
     };
   }, [isLoading, mode]);
+
+  const clearAutoSave = () => {
+    localStorage.removeItem(AUTOSAVE_KEY);
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+  };
 
   const handleImagesUpload = useCallback((imageData: ImageData[]) => {
     setOriginalImages(imageData);
@@ -518,11 +580,49 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    clearAutoSave();
     // Optional: clear state on logout
     setOriginalImages([]);
     setEditHistory({ past: [], present: [], future: [] });
     setGeneratedVideo({ objectUrl: null, blob: null });
   };
+
+  const handleRestoreSession = async () => {
+    if (!savedSession) return;
+    setOriginalImages(savedSession.originalImages || []);
+    setEditHistory(savedSession.editHistory || { past: [], present: [], future: [] });
+    setPrompt(savedSession.prompt || '');
+    setMode(savedSession.mode || 'edit');
+    setAspectRatio(savedSession.aspectRatio || '16:9');
+    setImageAspectRatio(savedSession.imageAspectRatio || null);
+    setMaskDataUrl(savedSession.maskDataUrl || null);
+
+    if (savedSession.generatedVideoDataUrl) {
+        try {
+            const blob = await dataURLtoBlob(savedSession.generatedVideoDataUrl);
+            const objectUrl = URL.createObjectURL(blob);
+            setGeneratedVideo({ blob, objectUrl });
+        } catch (e) {
+            console.error("Failed to restore video from saved session", e);
+            setGeneratedVideo({ blob: null, objectUrl: null });
+        }
+    } else {
+        setGeneratedVideo({ blob: null, objectUrl: null });
+    }
+
+    setSavedSession(null); // Hide the restore bar
+  };
+
+  const handleDismissSession = () => {
+      clearAutoSave();
+      setSavedSession(null);
+  };
+
+  const handleTemplateSelect = (templatePrompt: string) => {
+    setPrompt(templatePrompt);
+    setIsTemplatesOpen(false);
+  };
+
 
   const renderResults = () => {
     if (originalImages.length === 0) return null;
@@ -714,10 +814,18 @@ const App: React.FC = () => {
 
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <div>
-                            <label htmlFor="prompt" className="block text-sm font-medium text-gray-300 mb-2">
-                               {mode === 'edit' ? 'Editing' : 'Animation'} Prompt {mode === 'edit' && originalImages.length > 1 ? '(applied to all images)' : ''}
-                               {maskDataUrl && <span className="text-xs text-indigo-400 ml-2">(Mask Applied)</span>}
-                            </label>
+                            <div className="flex justify-between items-center mb-2">
+                                <label htmlFor="prompt" className="block text-sm font-medium text-gray-300">
+                                   {mode === 'edit' ? 'Editing' : 'Animation'} Prompt {mode === 'edit' && originalImages.length > 1 ? '(applied to all images)' : ''}
+                                   {maskDataUrl && <span className="text-xs text-indigo-400 ml-2">(Mask Applied)</span>}
+                                </label>
+                                <button type="button" onClick={() => setIsTemplatesOpen(true)} className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M5 2a1 1 0 00-1 1v1.586l-1.707 1.707A1 1 0 003 8v6a1 1 0 001 1h2.586l1.707 1.707A1 1 0 0010 16v1.414l1.293-1.293a1 1 0 01.707-.293h3a1 1 0 001-1V9a1 1 0 00-1-1h-1.414l-1.293-1.293A1 1 0 0010 6.414V5a1 1 0 00-1-1H5zm5-1a1 1 0 00-1 1v.414l.293.293a1 1 0 010 1.414L9 8.414V14a1 1 0 001 1h3a1 1 0 001-1V9a1 1 0 00-1-1h-.414l-1.293-1.293a1 1 0 00-1.414 0L10 7.414V3a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                    Templates
+                                </button>
+                            </div>
                             <RichTextEditor
                                 value={prompt}
                                 onChange={setPrompt}
@@ -800,7 +908,10 @@ const App: React.FC = () => {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setOriginalImages([])}
+                                onClick={() => {
+                                    setOriginalImages([]);
+                                    clearAutoSave();
+                                }}
                                 className="w-full sm:w-auto inline-flex items-center justify-center rounded-md border border-gray-600 bg-gray-700 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-gray-900"
                             >
                                 Change Image(s)
@@ -816,12 +927,27 @@ const App: React.FC = () => {
           {renderResults()}
         </main>
 
+        {savedSession && (
+            <RestoreSessionBar
+                onRestore={handleRestoreSession}
+                onDismiss={handleDismissSession}
+            />
+        )}
+
         <LibraryModal 
           isOpen={isLibraryOpen}
           onClose={() => setIsLibraryOpen(false)}
           library={library}
           onDownload={handleLibraryDownload}
           onDelete={handleRemoveFromLibrary}
+        />
+        
+        <PromptTemplatesModal
+          isOpen={isTemplatesOpen}
+          onClose={() => setIsTemplatesOpen(false)}
+          onSelect={handleTemplateSelect}
+          templates={PROMPT_TEMPLATES}
+          currentMode={mode}
         />
 
         <DownloadModal
