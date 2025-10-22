@@ -1,5 +1,6 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { editImageWithGemini, animateImageWithGemini } from './services/geminiService';
+import { editImageWithGemini, animateImageWithGemini, enhancePromptWithGemini } from './services/geminiService';
 import { getLibrary, saveLibrary, LibraryItem } from './services/libraryService';
 import { fetchShopifyProducts, convertImageUrlsToImageData, ShopifyProductImage } from './services/shopifyService';
 import ImageSlider from './ImageSlider';
@@ -172,6 +173,7 @@ const App: React.FC = () => {
   const [generatedVideo, setGeneratedVideo] = useState<VideoData>({ objectUrl: null, blob: null });
   const [prompt, setPrompt] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isEnhancing, setIsEnhancing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('edit');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
@@ -438,6 +440,25 @@ const App: React.FC = () => {
       } finally {
           setShopifyLoading(false);
       }
+  };
+
+  const handleEnhancePrompt = async () => {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+        setError("Please enter a basic idea in the prompt box before enhancing.");
+        return;
+    }
+    setIsEnhancing(true);
+    setError(null);
+    try {
+        const enhancedPrompt = await enhancePromptWithGemini(trimmedPrompt);
+        setPrompt(enhancedPrompt);
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : "Failed to enhance prompt.";
+        setError(errorMessage);
+    } finally {
+        setIsEnhancing(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -767,17 +788,21 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
-        <header className="text-center mb-8 relative">
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-600">
-            Visionary AI Studio
-          </h1>
-          <p className="mt-2 text-lg text-gray-400">
-            Edit images or create short video ads with simple text prompts.
-          </p>
-          <div className="absolute top-0 right-0">
+        <header className="flex justify-between items-center mb-8">
+            <h2 className="text-2xl font-bold text-gray-200">
+                Visionary AI Studio
+            </h2>
             <UserProfile onOpenLibrary={() => setIsLibraryOpen(true)} onLogout={handleLogout} />
-          </div>
         </header>
+
+        <div className="text-center mb-12">
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-600 leading-tight">
+                Turn Your Ideas Into Viral Content—In 30 Seconds, With AI.
+            </h1>
+            <p className="mt-4 max-w-3xl mx-auto text-lg text-gray-400">
+                Generate scroll-stopping posts, blogs, and images with one click. No creative block, no tech skills, no waiting.
+            </p>
+        </div>
         
         <main className="space-y-8">
           <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 shadow-lg">
@@ -819,12 +844,27 @@ const App: React.FC = () => {
                                    {mode === 'edit' ? 'Editing' : 'Animation'} Prompt {mode === 'edit' && originalImages.length > 1 ? '(applied to all images)' : ''}
                                    {maskDataUrl && <span className="text-xs text-indigo-400 ml-2">(Mask Applied)</span>}
                                 </label>
-                                <button type="button" onClick={() => setIsTemplatesOpen(true)} className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M5 2a1 1 0 00-1 1v1.586l-1.707 1.707A1 1 0 003 8v6a1 1 0 001 1h2.586l1.707 1.707A1 1 0 0010 16v1.414l1.293-1.293a1 1 0 01.707-.293h3a1 1 0 001-1V9a1 1 0 00-1-1h-1.414l-1.293-1.293A1 1 0 0010 6.414V5a1 1 0 00-1-1H5zm5-1a1 1 0 00-1 1v.414l.293.293a1 1 0 010 1.414L9 8.414V14a1 1 0 001 1h3a1 1 0 001-1V9a1 1 0 00-1-1h-.414l-1.293-1.293a1 1 0 00-1.414 0L10 7.414V3a1 1 0 00-1-1z" clipRule="evenodd" />
-                                    </svg>
-                                    Templates
-                                </button>
+                                <div className="flex items-center gap-4">
+                                    <button type="button" onClick={handleEnhancePrompt} disabled={isLoading || isEnhancing} className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                                         {isEnhancing ? (
+                                            <svg className="animate-spin h-4 w-4 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                        ) : (
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M10 3a1 1 0 01.753.35l2.147 2.683a1 1 0 001.303.24l3.14-1.57a.5.5 0 01.63.63l-1.57 3.14a1 1 0 00.24 1.303l2.683 2.147a1 1 0 01.35.753v.184a1 1 0 01-.35.753l-2.683 2.147a1 1 0 00-.24 1.303l1.57 3.14a.5.5 0 01-.63.63l-3.14-1.57a1 1 0 00-1.303.24L10.753 17.65a1 1 0 01-.753.35h-.184a1 1 0 01-.753-.35L6.913 15.067a1 1 0 00-1.303-.24l-3.14 1.57a.5.5 0 01-.63-.63l1.57-3.14a1 1 0 00-.24-1.303L.35 10.753A1 1 0 010 10v-.184a1 1 0 01.35-.753l2.683-2.147a1 1 0 00.24-1.303L1.57 2.47a.5.5 0 01.63-.63l3.14 1.57a1 1 0 001.303-.24L9.247 3.35A1 1 0 0110 3z" clipRule="evenodd" />
+                                            </svg>
+                                        )}
+                                        {isEnhancing ? 'Enhancing...' : 'Enhance with AI'}
+                                    </button>
+                                    <button type="button" onClick={() => setIsTemplatesOpen(true)} className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M5 2a1 1 0 00-1 1v1.586l-1.707 1.707A1 1 0 003 8v6a1 1 0 001 1h2.586l1.707 1.707A1 1 0 0010 16v1.414l1.293-1.293a1 1 0 01.707-.293h3a1 1 0 001-1V9a1 1 0 00-1-1h-1.414l-1.293-1.293A1 1 0 0010 6.414V5a1 1 0 00-1-1H5zm5-1a1 1 0 00-1 1v.414l.293.293a1 1 0 010 1.414L9 8.414V14a1 1 0 001 1h3a1 1 0 001-1V9a1 1 0 00-1-1h-.414l-1.293-1.293a1 1 0 00-1.414 0L10 7.414V3a1 1 0 00-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                        Templates
+                                    </button>
+                                </div>
                             </div>
                             <RichTextEditor
                                 value={prompt}

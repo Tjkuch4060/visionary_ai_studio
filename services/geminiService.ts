@@ -128,3 +128,39 @@ export const animateImageWithGemini = async (
         throw new Error("Failed to generate video. Please try again later.");
     }
 };
+
+
+export const enhancePromptWithGemini = async (currentPrompt: string): Promise<string> => {
+    if (!process.env.API_KEY) {
+        throw new Error("API_KEY environment variable is not set.");
+    }
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    const systemInstruction = `You are an AI assistant for a creative image and video generation application. Your task is to take a user's basic prompt and enhance it to be more descriptive, vivid, and detailed, suitable for a generative AI model. 
+    Return ONLY the enhanced prompt text, without any introductory phrases like "Here is the enhanced prompt:". 
+    The enhanced prompt should elaborate on the original idea, adding details about style, lighting, composition, and quality. 
+    If the original prompt seems intended for a video, add descriptive terms for camera movement and effects.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: currentPrompt,
+            config: {
+                systemInstruction: systemInstruction,
+            },
+        });
+
+        const enhancedPrompt = response.text;
+        if (!enhancedPrompt) {
+            throw new Error("The AI returned an empty response. Please try rephrasing your idea.");
+        }
+
+        return enhancedPrompt.trim();
+    } catch (error) {
+        console.error("Error calling Gemini API for prompt enhancement:", error);
+        if (error instanceof Error && error.message.includes('API key not valid')) {
+            throw new Error("The API key is invalid. Please check your configuration.");
+        }
+        throw new Error("Failed to enhance prompt. The generation may have been blocked or an unknown error occurred.");
+    }
+};
