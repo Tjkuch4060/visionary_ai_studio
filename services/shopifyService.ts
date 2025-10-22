@@ -61,15 +61,16 @@ export const fetchShopifyProducts = async (storeUrl: string): Promise<ShopifyPro
 export const convertImageUrlsToImageData = (images: ShopifyProductImage[]): Promise<ImageData[]> => {
     const promises = images.map(async (image) => {
         try {
-            // Using a CORS proxy for development/demo purposes. 
-            const proxyUrl = `https://cors-anywhere.herokuapp.com/`;
+            // Using a public CORS proxy to fetch images from a different origin.
+            // This is for demonstration; a production app would use a server-side proxy.
+            const proxyUrl = `https://corsproxy.io/?`;
+            // This proxy expects the raw URL, not an encoded one.
             const response = await fetch(proxyUrl + image.src);
+            
             if (!response.ok) {
-                let errorReason = `Status: ${response.status}`;
-                if (response.status === 403) {
-                    errorReason = "Forbidden. The demo CORS proxy may require activation. Please visit the proxy's homepage and request temporary access.";
-                } else if (response.status === 429) {
-                    errorReason = "Too Many Requests. The demo CORS proxy is rate-limited. Please wait a moment and try again.";
+                let errorReason = `Status: ${response.status} ${response.statusText}`;
+                 if (response.status === 429) {
+                    errorReason = "Too Many Requests. The CORS proxy is rate-limited. Please wait a moment and try again.";
                 }
                 throw new Error(`Failed to fetch image via proxy. Reason: ${errorReason}`);
             }
@@ -93,9 +94,14 @@ export const convertImageUrlsToImageData = (images: ShopifyProductImage[]): Prom
             });
         } catch (error) {
             console.error(`Error converting image URL ${image.src}:`, error);
-            // Append the problematic URL to the error message to make it clearer which image failed.
+            const imageName = image.src.split('/').pop()?.split('?')[0] || 'unknown image';
+
+            if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+                 throw new Error(`A network error occurred fetching "${imageName}". The CORS proxy may be down or an ad-blocker could be interfering. Please try again.`);
+            }
+            
             const message = error instanceof Error ? error.message : "An unknown error occurred.";
-            throw new Error(`Failed to process image [${image.src.split('/').pop()?.split('?')[0]}]: ${message}`);
+            throw new Error(`Failed to process image "${imageName}": ${message}`);
         }
     });
 
