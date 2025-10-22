@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ImageData } from './App';
+import { GlowingEffect } from './GlowingEffect';
 
 const fileToImageData = (file: File): Promise<ImageData> => {
   return new Promise((resolve, reject) => {
@@ -79,6 +80,7 @@ const FileUploader: React.FC<{ onImagesUpload: (imageData: ImageData[]) => void;
         Click to upload or drag & drop
       </span>
       <span className="mt-1 block text-xs text-gray-500">PNG, JPG, WEBP, GIF up to 10MB</span>
+      <GlowingEffect disabled={false} proximity={20} spread={20} blur={10} />
     </label>
   );
 };
@@ -101,6 +103,7 @@ const ImageSourceSelector: React.FC<{ onImagesUpload: (imageData: ImageData[]) =
                         Import from Shopify
                     </span>
                     <span className="mt-1 block text-xs text-gray-500">Connect your store to use product images</span>
+                    <GlowingEffect disabled={false} proximity={20} spread={20} blur={10} />
                 </button>
             </div>
         </div>

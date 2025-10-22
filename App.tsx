@@ -805,7 +805,7 @@ const App: React.FC = () => {
         </div>
         
         <main className="space-y-8">
-          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 shadow-lg">
+          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 shadow-lg mt-16">
             {originalImages.length === 0 ? (
                 <ImageSourceSelector 
                   onImagesUpload={handleImagesUpload}
